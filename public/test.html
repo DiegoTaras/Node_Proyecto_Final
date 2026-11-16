@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel de prueba – API de Productos</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, Segoe UI, Arial, sans-serif; margin: 0; background: #f4f5f7; color: #222; }
+  header { background: #1f2937; color: #fff; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 18px; margin: 0; }
+  #estado { font-size: 13px; }
+  main { max-width: 1100px; margin: 20px auto; padding: 0 16px; display: grid; grid-template-columns: 340px 1fr; gap: 20px; }
+  .card { background: #fff; border-radius: 8px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.1); margin-bottom: 20px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; }
+  label { display: block; font-size: 12px; color: #555; margin: 8px 0 3px; }
+  input, textarea { width: 100%; padding: 7px 9px; border: 1px solid #ccc; border-radius: 5px; font: inherit; font-size: 14px; }
+  textarea { resize: vertical; min-height: 50px; }
+  button { cursor: pointer; border: 0; border-radius: 5px; padding: 8px 14px; font-size: 14px; }
+  .primario { background: #2563eb; color: #fff; }
+  .secundario { background: #e5e7eb; }
+  .peligro { background: #dc2626; color: #fff; }
+  .chico { padding: 4px 9px; font-size: 12px; }
+  .fila { display: flex; gap: 8px; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eee; }
+  th { font-size: 12px; color: #666; text-transform: uppercase; }
+  td.num { text-align: right; }
+  #respuesta { background: #111827; color: #d1fae5; font-family: Consolas, monospace; font-size: 12px; padding: 12px; border-radius: 6px; white-space: pre-wrap; max-height: 260px; overflow: auto; margin: 0; }
+  .ok { color: #16a34a; } .err { color: #dc2626; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Panel de prueba – API de Productos</h1>
+  <span id="estado">Sin sesión</span>
+</header>
+
+<main>
+  <div>
+    <div class="card">
+      <h2>1. Login</h2>
+      <form id="formLogin">
+        <label>Email</label>
+        <input id="email" type="email" value="admin@tienda.com" required>
+        <label>Password</label>
+        <input id="password" type="password" value="123456" required>
+        <div class="fila">
+          <button class="primario" type="submit">Ingresar</button>
+          <button class="secundario" type="button" id="btnLogout">Salir</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 id="tituloForm">2. Crear producto</h2>
+      <form id="formProducto">
+        <label>ID (opcional: si lo dejás vacío se asigna solo)</label>
+        <input id="id" type="number" min="1" step="1">
+        <label>Nombre *</label>
+        <input id="nombre" required>
+        <label>Precio *</label>
+        <input id="precio" type="number" min="0" step="0.01" required>
+        <label>Stock</label>
+        <input id="stock" type="number" min="0" step="1">
+        <label>Categoría</label>
+        <input id="categoria">
+        <label>Descripción</label>
+        <textarea id="descripcion"></textarea>
+        <div class="fila">
+          <button class="primario" type="submit" id="btnGuardar">Crear</button>
+          <button class="secundario" type="button" id="btnCancelar" hidden>Cancelar edición</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0">Productos</h2>
+        <button class="secundario chico" id="btnRefrescar">Refrescar</button>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Nombre</th><th>Categoría</th><th class="num">Precio</th><th class="num">Stock</th><th></th></tr></thead>
+        <tbody id="tabla"><tr><td colspan="6">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Última respuesta del servidor</h2>
+      <pre id="respuesta">—</pre>
+    </div>
+  </div>
+</main>
+
+<script>
+  let token = sessionStorage.getItem('token') || null;
+  let editandoId = null;
+  const $ = (id) => document.getElementById(id);
+
+  const escapar = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+  const actualizarEstado = () => {
+    $('estado').textContent = token ? 'Sesión iniciada ✔' : 'Sin sesión (solo podés listar)';
+  };
+
+  const mostrar = (metodo, url, status, data) => {
+    const clase = status < 400 ? 'ok' : 'err';
+    $('respuesta').innerHTML = `<span class="${clase}">${metodo} ${escapar(url)} → ${status}</span>\n\n` + escapar(JSON.stringify(data, null, 2));
+  };
+
+  // Hace la petición, muestra la respuesta y devuelve { status, data }
+  const api = async (metodo, url, body) => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = token;
+    try {
+      const res = await fetch(url, { method: metodo, headers, body: body ? JSON.stringify(body) : undefined });
+      const data = await res.json().catch(() => ({}));
+      mostrar(metodo, url, res.status, data);
+      return { status: res.status, data };
+    } catch (e) {
+      mostrar(metodo, url, 0, { error: 'No se pudo conectar con el servidor' });
+      return { status: 0, data: null };
+    }
+  };
+
+  const cargarProductos = async () => {
+    const { status, data } = await api('GET', '/api/products');
+    const tbody = $('tabla');
+    if (status !== 200) { tbody.innerHTML = '<tr><td colspan="6">Error al cargar</td></tr>'; return; }
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="6">No hay productos</td></tr>'; return; }
+    data.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+    tbody.innerHTML = data.map((p) => `
+      <tr>
+        <td>${escapar(p.id)}</td>
+        <td>${escapar(p.nombre)}</td>
+        <td>${escapar(p.categoria)}</td>
+        <td class="num">$ ${Number(p.precio).toLocaleString('es-AR')}</td>
+        <td class="num">${escapar(p.stock)}</td>
+        <td style="white-space:nowrap">
+          <button class="secundario chico" data-editar="${escapar(p.id)}">Editar</button>
+          <button class="peligro chico" data-borrar="${escapar(p.id)}">Borrar</button>
+        </td>
+      </tr>`).join('');
+    window._productos = data;
+  };
+
+  const limpiarForm = () => {
+    editandoId = null;
+    $('formProducto').reset();
+    $('id').disabled = false;
+    $('tituloForm').textContent = '2. Crear producto';
+    $('btnGuardar').textContent = 'Crear';
+    $('btnCancelar').hidden = true;
+  };
+
+  // Login
+  $('formLogin').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const { status, data } = await api('POST', '/auth/login', { email: $('email').value, password: $('password').value });
+    if (status === 200) {
+      token = data.token;
+      sessionStorage.setItem('token', token);
+    }
+    actualizarEstado();
+  });
+
+  $('btnLogout').addEventListener('click', () => {
+    token = null;
+    sessionStorage.removeItem('token');
+    actualizarEstado();
+    mostrar('—', 'logout', 200, { message: 'Token borrado del navegador' });
+  });
+
+  // Crear / actualizar
+  $('formProducto').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = { nombre: $('nombre').value, precio: Number($('precio').value) };
+    if ($('stock').value !== '') body.stock = Number($('stock').value);
+    body.categoria = $('categoria').value;
+    body.descripcion = $('descripcion').value;
+
+    const creando = editandoId === null;
+    if (creando && $('id').value !== '') body.id = Number($('id').value);
+    const metodo = creando ? 'POST' : 'PUT';
+    const url = creando ? '/api/products/create' : `/api/products/${editandoId}`;
+
+    const r = await api(metodo, url, body);
+    if (r.status === 200 || r.status === 201) {
+      limpiarForm();
+      await cargarProductos();
+      mostrar(metodo, url, r.status, r.data); // vuelve a mostrar la respuesta del guardado
+    }
+  });
+
+  $('btnCancelar').addEventListener('click', limpiarForm);
+  $('btnRefrescar').addEventListener('click', cargarProductos);
+
+  // Botones de la tabla
+  $('tabla').addEventListener('click', async (e) => {
+    const idEditar = e.target.dataset.editar;
+    const idBorrar = e.target.dataset.borrar;
+
+    if (idEditar) {
+      const p = window._productos.find((x) => String(x.id) === idEditar);
+      editandoId = idEditar;
+      $('id').value = p.id;
+      $('id').disabled = true;
+      $('nombre').value = p.nombre ?? '';
+      $('precio').value = p.precio ?? '';
+      $('stock').value = p.stock ?? '';
+      $('categoria').value = p.categoria ?? '';
+      $('descripcion').value = p.descripcion ?? '';
+      $('tituloForm').textContent = `2. Editar producto #${p.id}`;
+      $('btnGuardar').textContent = 'Guardar cambios';
+      $('btnCancelar').hidden = false;
+      $('nombre').focus();
+    }
+
+    if (idBorrar) {
+      if (!confirm(`¿Eliminar el producto #${idBorrar}?`)) return;
+      const r = await api('DELETE', `/api/products/${idBorrar}`);
+      if (r.status === 200) {
+        await cargarProductos();
+        mostrar('DELETE', `/api/products/${idBorrar}`, r.status, r.data);
+      }
+    }
+  });
+
+  actualizarEstado();
+  cargarProductos();
+</script>
+</body>
+</html>
