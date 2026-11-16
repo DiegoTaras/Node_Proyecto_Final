@@ -31,6 +31,11 @@ app.use(notFound);
 // Manejo centralizado de errores (400 / 500)
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`Servidor escuchando en http://localhost:${PORT}`);
-});
+// En local levantamos el servidor; en Vercel la app se exporta y Vercel la ejecuta
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Servidor escuchando en http://localhost:${PORT}`);
+  });
+}
+
+export default app;
