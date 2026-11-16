@@ -19,9 +19,15 @@ app.use(bodyParser.json());
 app.use(express.static('public'));
 
 // Rutas
+//app.get('/', (req, res) => {
+//  res.json({ message: 'API de productos funcionando' });
+//});
+
+// Al entrar a la raíz, redirige al panel de prueba
 app.get('/', (req, res) => {
-  res.json({ message: 'API de productos funcionando' });
+  res.redirect('/test.html');
 });
+
 app.use('/api/products', productsRoutes);
 app.use('/auth', authRoutes);
 
