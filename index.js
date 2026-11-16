@@ -23,7 +23,7 @@ app.use(express.static('public'));
 //  res.json({ message: 'API de productos funcionando' });
 //});
 
-// Al entrar a la raíz, redirige al panel de prueba
+// Al entrar a la raíz, redirige al panel de prueba lo cambié para que ingrese directo
 app.get('/', (req, res) => {
   res.redirect('/test.html');
 });
